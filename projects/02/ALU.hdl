@@ -48,5 +48,42 @@ CHIP ALU {
         ng; // 1 if (out < 0),  0 otherwise
 
     PARTS:
-    // Put your code here.
+
+    // process x
+    Mux16(a[0..15]=x[0..15], b[0..15]=false, sel=zx, out=maybezeroedx);
+    Not16(in[0..15]=maybezeroedx, out=negatedx);
+    Mux16(a[0..15]=maybezeroedx, b[0..15]=negatedx, sel=nx, out=processedx);
+
+    // process y
+    Mux16(a[0..15]=y[0..15], b[0..15]=false, sel=zy, out=maybezeroedy);
+    Not16(in[0..15]=maybezeroedy, out=negatedy);
+    Mux16(a[0..15]=maybezeroedy, b[0..15]=negatedy, sel=ny, out=processedy);
+
+    //Not16(in[0..15]=y[0..15], out=noty);
+    //Mux16(a[0..15]=y[0..15], b[0..15]=noty, sel=ny, out=maybenegatedy);
+    //Mux16(a=maybenegatedy, b[0..15]=false, sel=zy, out=processedy);
+
+    // compute add or and
+    Add16(a[0..15]=processedx, b[0..15]=processedy, out=xplusy);
+    And16(a[0..15]=processedx, b[0..15]=processedy, out=xandy);
+
+    // select function result
+    Mux16(a[0..15]=xandy, b[0..15]=xplusy, sel=f, out=fout);
+
+    // negate function out
+    Not16(in[0..15]=fout, out=negatedout);
+
+    // select ouput
+    Mux16(a[0..15]=fout, b[0..15]=negatedout, sel=no, out=finalout);
+
+    // passthrough finalout to global output
+    Not16(in[0..15]=finalout, out[0..15]=passthrough1);
+    Not16(in[0..15]=passthrough1, out=out);
+
+    // zero flag
+    Or16Way(in[0..15]=finalout, out=notzero);
+    Not(in=notzero, out=zr); 
+
+    // negative flag
+    IsNegative(in[0..15]=finalout, out=ng);
 }
