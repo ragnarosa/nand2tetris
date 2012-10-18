@@ -24,6 +24,59 @@
  * than to the address resulting from executing the current instruction. 
  */
 
+
+/* HACK MACHINE LANGUAGE SPEC
+    
+    Address instruction:
+    0aaa aaaa aaaa aaaa - load A register with 15 bit value
+
+    C-instruction:
+    111a cccc ccdd djjj
+
+    (lettered bits numbered from left to right)
+
+    zx  nx  zy  ny  f   no  
+    c1  c2  c3  c4  c5  c6      a=0     a=1
+    1   0   1   0   1   0       0       -
+    1   1   1   1   1   1       1       -
+    1   1   1   0   1   0       -1      -
+    1   1   0   0   0   0       A       M
+    0   0   1   1   0   1       !D      -
+    1   1   0   0   0   1       !A      !M 
+    0   0   1   1   1   1       -D      -
+    1   1   0   0   1   1       -A      -M 
+    0   1   1   1   1   1       D+1     - 
+    1   1   0   1   1   1       A+1     M+1
+    0   0   1   1   1   0       D-1     - 
+    1   1   0   0   1   0       A-1     M-1
+    0   0   0   0   1   0       D+A     D+M 
+    0   1   0   0   1   1       D-A     D-M 
+    0   0   0   1   1   1       A-D     M-D 
+    0   0   0   0   0   0       D&A     D&M 
+    0   1   0   1   0   1       D|A     D|M 
+
+    d1  d2  d3  dest
+    0   0   0   null
+    0   0   1   M
+    0   1   0   D
+    0   1   1   MD
+    1   0   0   A
+    1   0   1   AM
+    1   1   0   AD
+    1   1   1   AMD
+
+    j1  j2  j3  condition
+    0   0   0   no jump
+    0   0   1   if out > 0 jump
+    0   1   0   if out == 0 jump
+    0   1   1   if out >= 0 jump
+    1   0   0   if out < 0 jump
+    1   0   1   if out != 0 jump
+    1   1   0   if out <= 0 jump
+    1   1   1   unconditional 
+
+*/
+
 CHIP CPU {
 
     IN  inM[16],         // M value input  (M = contents of RAM[A])
@@ -34,9 +87,122 @@ CHIP CPU {
 
     OUT outM[16],        // M value output
         writeM,          // Write into M? 
-        addressM[15],    // RAM address (of M)
+        addressM[15],   // RAM address (of M)
         pc[15];          // ROM address (of next instruction)
 
-     PARTS:
-    // Put your code here.
+    PARTS:
+
+    // Routing
+    And(a=instruction[15], b=instruction[3], out=writeM);
+
+    Not16(in[0..15]=addressout, out=route1);
+    Not16(in[0..15]=route1, out[0..14]=addressM[0..14]);
+
+    Not16(in[0..15]=aluoutput, out=route2);
+    Not16(in[0..15]=route2, out[0..15]=outM[0..15]);
+
+    /* 
+    Branching logic
+    loadpc = 
+    (instruction[0] && !ng && !zr) 
+    || (instruction[1] && zr) 
+    || (instruction[0] && instruction[1] && (!ng || zr))
+    || (instruction[2] && ng)
+    || (instruction[2] && instruction[0] && !zr)
+    || (instruction[2] && instruction[1] && (zr || ng))
+    || (instruction[2] && instruction[1] && instruction[0])
+    */
+
+    Not(in=ng, out=notng);
+    Not(in=zr, out=notzr);
+    And(a=notng, b=notzr, out=notngAndnotzr);
+    Or(a=notng, b=zr, out=gte);
+    Or(a=ng, b=zr, out=lte);
+
+    And(a=instruction[0], b=notngAndnotzr, out=jgt); 
+
+    And(a=instruction[1], b=zr, out=jeq); 
+
+    And(a=instruction[1], b=gte, out=jgeroute); 
+    And(a=instruction[0], b=jgeroute, out=jge); 
+
+    And(a=instruction[2], b=ng, out=jlt); 
+
+    And(a=instruction[0], b=notzr, out=jneroute); 
+    And(a=instruction[2], b=jneroute, out=jne); 
+
+    And(a=instruction[1], b=lte, out=jleroute); 
+    And(a=instruction[2], b=jleroute, out=jle); 
+
+    And(a=instruction[1], b=instruction[0], out=jmproute); 
+    And(a=instruction[2], b=jmproute, out=jmp); 
+
+    Or8Way(
+        in[0]=jgt,
+        in[1]=jeq,
+        in[2]=jge,
+        in[3]=jlt,
+        in[4]=jne,
+        in[5]=jle,
+        in[6]=jmp,
+        in[7]=false,
+        out=branch
+    );
+
+    And(a=branch, b=instruction[15], out=loadpc);
+
+    // A
+    Mux16(
+        a[0..15]=instruction[0..15], 
+        b[0..15]=aluoutput,
+        sel=instruction[15],
+        out[0..15]=addressregisterinput
+    );
+
+    // A/M
+    Mux16(
+        a[0..15]=addressout, 
+        b[0..15]=inM,
+        sel=instruction[12],
+        out[0..15]=addmemout
+    );
+
+    PC(
+        in[0..15]=addressout,
+        load=loadpc,
+        inc=true,
+        reset=reset,
+        out[0..14]=pc[0..14]
+    );
+
+    // A
+    Not(in=instruction[15], out=addressinstruction);
+    Or(a=addressinstruction, b=instruction[5], out=loada);
+    ARegister(
+        in[0..15]=addressregisterinput,
+        load=loada,
+        out[0..15]=addressout
+    );
+
+    // D 
+    And(a=instruction[15], b=instruction[4], out=loadd);
+    DRegister(
+        in[0..15]=aluoutput,
+        load=loadd,
+        out[0..15]=dataregout
+    );
+
+    ALU(
+        x[0..15]=dataregout, 
+        y[0..15]=addmemout,       
+        zx=instruction[11],
+        nx=instruction[10], 
+        zy=instruction[9],
+        ny=instruction[8],
+        f=instruction[7],
+        no=instruction[6],
+        out[0..15]=aluoutput,
+        zr=zr,
+        ng=ng
+    );
 }
