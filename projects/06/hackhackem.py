@@ -7,14 +7,19 @@
 # author: nicolas steven miller
 
 import sys
+import os
 
 if len(sys.argv) != 2:
-    print 'Usage: hasm input.asm'
+    print 'Usage: hackhackem.py input.asm'
     exit(-1)
+
+path = os.path.split(sys.argv[1])[0]
+head = os.path.split(sys.argv[1])[1]
+output_filename = os.path.join(path, head.split('.')[0] + '.hack')
 
 try:
     assembly = open(sys.argv[1], 'r')
-    binary = open(sys.argv[1].split('.')[0] + '.hack', 'w')
+    binary = open(output_filename, 'w')
 except IOError as e:
     print e.strerror + ': ' + e.filename
     exit(-1)
